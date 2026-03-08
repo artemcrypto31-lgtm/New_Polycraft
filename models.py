@@ -7,6 +7,10 @@ class User(BaseModel):
     username: Optional[str] = None
     full_name: Optional[str] = None
     phone: Optional[str] = None
+    org_name: Optional[str] = None
+    city: Optional[str] = None
+    address: Optional[str] = None
+    email: Optional[str] = None
     role: str = "client"
     created_at: datetime = Field(default_factory=datetime.now)
 

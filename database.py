@@ -17,10 +17,28 @@ class Database:
                     username TEXT,
                     full_name TEXT,
                     phone TEXT,
+                    org_name TEXT,
+                    city TEXT,
+                    address TEXT,
+                    email TEXT,
                     role TEXT DEFAULT 'client',
                     created_at TIMESTAMP
                 )
             """)
+            
+            # На случай если таблица уже создана без новых полей (миграция)
+            columns = [
+                ('org_name', 'TEXT'),
+                ('city', 'TEXT'),
+                ('address', 'TEXT'),
+                ('email', 'TEXT')
+            ]
+            for col_name, col_type in columns:
+                try:
+                    await db.execute(f"ALTER TABLE users ADD COLUMN {col_name} {col_type}")
+                except:
+                    pass
+
             # Таблица заказов
             await db.execute("""
                 CREATE TABLE IF NOT EXISTS orders (
@@ -66,24 +84,45 @@ class Database:
                         username=row['username'], 
                         full_name=row['full_name'], 
                         phone=row['phone'], 
+                        org_name=row['org_name'],
+                        city=row['city'],
+                        address=row['address'],
+                        email=row['email'],
                         role=row['role'], 
                         created_at=created_at
                     )
                 return None
 
     async def upsert_user(self, user: User):
+        """Создает пользователя или обновляет базовую информацию, не затирая профиль."""
         async with aiosqlite.connect(self.db_path) as db:
-            # Превращаем datetime в строку для SQLite, если нужно
             created_at_str = user.created_at.isoformat() if isinstance(user.created_at, datetime) else user.created_at
             
+            # Используем COALESCE, чтобы сохранить старые значения, если новые - NULL
             await db.execute("""
-                INSERT INTO users (id, username, full_name, phone, role, created_at)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO users (id, username, full_name, phone, org_name, city, address, email, role, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(id) DO UPDATE SET
-                    username=excluded.username,
-                    full_name=excluded.full_name,
-                    phone=excluded.phone
-            """, (user.id, user.username, user.full_name, user.phone, user.role, created_at_str))
+                    username = COALESCE(excluded.username, users.username),
+                    full_name = COALESCE(excluded.full_name, users.full_name),
+                    role = COALESCE(excluded.role, users.role)
+            """, (
+                user.id, user.username, user.full_name, user.phone, 
+                user.org_name, user.city, user.address, user.email, 
+                user.role, created_at_str
+            ))
+            await db.commit()
+
+    async def update_user_profile(self, user_id: int, **kwargs):
+        """Обновляет конкретные поля профиля пользователя."""
+        if not kwargs:
+            return
+        
+        async with aiosqlite.connect(self.db_path) as db:
+            keys = [f"{k} = ?" for k in kwargs.keys()]
+            query = f"UPDATE users SET {', '.join(keys)} WHERE id = ?"
+            values = list(kwargs.values()) + [user_id]
+            await db.execute(query, values)
             await db.commit()
 
     async def create_order(self, order: Order):
