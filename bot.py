@@ -15,8 +15,10 @@ from handlers.requirements import router as requirements_router
 from handlers.promotions import router as promotions_router
 from handlers.contacts import router as contacts_router
 from handlers.profile import router as profile_router
+from handlers.flyers import router as flyers_router
+from handlers.leaflets import router as leaflets_router
 from handlers.orders import router as orders_router
-from handlers.calc_vizitki import router as calc_vizitki_router
+
 
 load_dotenv()
 
@@ -56,11 +58,12 @@ async def main():
     dp.include_router(requirements_router)
     dp.include_router(contacts_router)
     dp.include_router(profile_router)
+    dp.include_router(flyers_router)
+    dp.include_router(leaflets_router)
     dp.include_router(orders_router)
-    dp.include_router(calc_vizitki_router)
     dp.include_router(start_router)
-
-    # 6. Запуск бота
+    
+        # 6. Запуск бота
     logging.info("Бот запущен и готов к работе.")
     try:
         # Удаляем вебхуки и старые обновления перед началом
