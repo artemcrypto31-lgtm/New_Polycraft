@@ -32,8 +32,18 @@ class CalcFlyers(StatesGroup):
     reg_city = State()
     reg_address = State()
 
+def get_progress_bar(current: int, total: int) -> str:
+    """Рисует визуальную полоску прогресса"""
+    filled = int((current / total) * 10)
+    bar = "▰" * filled + "▱" * (10 - filled)
+    percent = int((current / total) * 100)
+    return f"📊 <b>Шаг {current} из {total}</b> [{bar}] {percent}%\n\n"
+
 def get_breadcrumbs(data: dict, current_step: int) -> str:
-    """Генерирует 'хлебные крошки' — историю выбора пользователя"""
+    """Генерирует прогресс-бар и историю выбора пользователя"""
+    total_steps = 7
+    progress = get_progress_bar(current_step, total_steps)
+    
     lines = []
     if current_step > 1: lines.append(f"🖨 Печать: <b>{data.get('print_type', '???')}</b>")
     if current_step > 2: lines.append(f"📏 Формат: <b>{data.get('format', '???')}</b>")
@@ -43,7 +53,8 @@ def get_breadcrumbs(data: dict, current_step: int) -> str:
     if current_step > 6: lines.append(f"⚙️ Доп: <b>{data.get('processing', '???')}</b>")
     if current_step > 7: lines.append(f"🔢 Тираж: <b>{data.get('count', '???')} шт.</b>")
     
-    return ("📝 <b>Ваш заказ:</b>\n" + "\n".join(lines) + "\n➖➖➖➖➖➖➖➖\n") if lines else ""
+    history = ("📝 <b>Ваш заказ:</b>\n" + "\n".join(lines) + "\n➖➖➖➖➖➖➖➖\n") if lines else ""
+    return progress + history
 
 async def smart_edit(message: types.Message, text: str, kb: InlineKeyboardMarkup):
     """Умное редактирование сообщения (удаляет фото, если оно было)"""
@@ -69,7 +80,8 @@ async def step_1_print_type(callback: types.CallbackQuery, state: FSMContext):
     
     # --- ТЕКСТ ВОПРОСА ---
     text = (
-        "🔹 <b>Шаг 1. Выберите технологию печати</b>\n"
+        f"{get_breadcrumbs({}, 1)}"
+        "🔹 <b>Выберите технологию печати</b>\n"
         "От технологии зависит цена за тираж и срок изготовления.\n\n"
         "1️⃣ <b>Офсетная печать</b>\n"
         "- Лучше для тиражей от 1000 шт.\n"
@@ -892,5 +904,17 @@ async def finalize_order(user_obj, state: FSMContext, bot: Bot, message_obj, db:
         except: pass
 
     await state.clear()
-    kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🏠 В главное меню", callback_data="back_to_main")]])
-    await message_obj.answer(f"✅ <b>Заказ #{order_id} отправлен!</b>\nМенеджер свяжется с вами.", reply_markup=kb, parse_mode="HTML")
+    
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="👤 Личный кабинет", callback_data="main_profile")],
+        [InlineKeyboardButton(text="🏗 В каталог товаров", callback_data="main_constructor")],
+        [InlineKeyboardButton(text="🏠 Главное меню", callback_data="back_to_main")]
+    ])
+    
+    await message_obj.answer(
+        f"🎉 <b>Заказ #{order_id} успешно отправлен!</b>\n\n"
+        "Менеджер уже получил уведомление и приступил к расчету. Обычно это занимает от 15 до 30 минут в рабочее время.\n\n"
+        "<b>Куда отправимся дальше?</b>",
+        reply_markup=kb,
+        parse_mode="HTML"
+    )

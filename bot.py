@@ -17,6 +17,7 @@ from handlers.contacts import router as contacts_router
 from handlers.profile import router as profile_router
 from handlers.flyers import router as flyers_router
 from handlers.leaflets import router as leaflets_router
+from handlers.journals import router as journals_router
 from handlers.orders import router as orders_router
 
 
@@ -60,6 +61,7 @@ async def main():
     dp.include_router(profile_router)
     dp.include_router(flyers_router)
     dp.include_router(leaflets_router)
+    dp.include_router(journals_router)
     dp.include_router(orders_router)
     dp.include_router(start_router)
     

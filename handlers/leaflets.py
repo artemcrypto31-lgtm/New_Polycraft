@@ -30,7 +30,18 @@ class CalcLeaflets(StatesGroup):
 
 # === ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ===
 
+def get_progress_bar(current: int, total: int) -> str:
+    """Рисует визуальную полоску прогресса"""
+    filled = int((current / total) * 10)
+    bar = "▰" * filled + "▱" * (10 - filled)
+    percent = int((current / total) * 100)
+    return f"📊 <b>Шаг {current} из {total}</b> [{bar}] {percent}%\n\n"
+
 def get_breadcrumbs(data: dict, current_step: int) -> str:
+    """Генерирует прогресс-бар и историю выбора пользователя"""
+    total_steps = 6
+    progress = get_progress_bar(current_step, total_steps)
+    
     lines = []
     if current_step > 1: lines.append(f"📏 Формат: <b>{data.get('format', '???')}</b>")
     if current_step > 2: lines.append(f"🎨 Печать: <b>{data.get('color', '???')}</b>")
@@ -39,8 +50,8 @@ def get_breadcrumbs(data: dict, current_step: int) -> str:
     if current_step > 5: lines.append(f"⚖️ Плотность: <b>{data.get('paper', '???')}</b>")
     if current_step > 6: lines.append(f"🔢 Тираж: <b>{data.get('count', '???')} шт.</b>")
     
-    if not lines: return ""
-    return "⚙️ <b>Ваш выбор:</b>\n" + "\n".join(lines) + "\n➖➖➖➖➖➖➖➖\n"
+    history = ("⚙️ <b>Ваш выбор:</b>\n" + "\n".join(lines) + "\n➖➖➖➖➖➖➖➖\n") if lines else ""
+    return progress + history
 
 async def smart_edit(message: types.Message, text: str, kb: InlineKeyboardMarkup):
     try:
@@ -60,10 +71,9 @@ async def step_1_format(callback: types.CallbackQuery, state: FSMContext):
     await state.set_state(CalcLeaflets.step_format)
     
     text = (
-        "📍 <b>Шаг 1. Выбор формата</b>\n\n"
-        "Отлично, печатаем Листовки! Это универсальный инструмент: от агитации до подробных прайс-листов.\n\n"
-        "Сейчас выберите размер. От него зависит, сколько информации поместится и насколько удобно её будет читать.\n\n"
-        "<b>Выберите подходящий формат:</b>\n"
+        f"{get_breadcrumbs({}, 1)}"
+        "📍 <b>Выберите подходящий формат:</b>\n"
+        "От него зависит, сколько информации поместится и насколько удобно её будет читать.\n\n"
         "• A6 (105 × 148 мм)\n"
         "• A5 (148 × 210 мм)\n"
         "• A4 (210 × 297 мм)\n"
@@ -407,16 +417,18 @@ async def btn_circulation(callback: types.CallbackQuery, state: FSMContext, bot:
 async def show_final_summary(message: types.Message, state: FSMContext, bot: Bot, db: Database, edit_id: int = None):
     data = await state.get_data()
     
-    params_text = (
-        f"📏 Формат: <b>{data['format']}</b>\n"
-        f"🎨 Печать: <b>{data['color']}</b>\n"
-        f"🛠 Обработка: <b>{data['processing']}</b>\n"
-        f"📄 Материал: <b>{data['p_type']}</b>\n"
+    summary_text = (
+        f"🧾 <b>ПРОВЕРКА ДАННЫХ: ЛИСТОВКИ</b>\n"
+        f"➖➖➖➖➖➖➖➖\n"
+        f"📏 Формат: <b>{data.get('format', 'Не указан')}</b>\n"
+        f"🎨 Печать: <b>{data.get('color', 'Не указана')}</b>\n"
+        f"🛠 Обработка: <b>{data.get('processing', 'Без обработки')}</b>\n"
+        f"📄 Материал: <b>{data.get('p_type', 'Не указан')}</b>\n"
         f"⚖️ Плотность: <b>{data.get('paper', 'Стандарт')}</b>\n"
-        f"🔢 Тираж: <b>{data['count']} шт.</b>"
+        f"🔢 Тираж: <b>{data.get('count', '0')} шт.</b>"
     )
     
-    await state.update_data(final_summary=params_text)
+    await state.update_data(final_summary=summary_text)
     user_id = message.chat.id
     profile = await db.get_user(user_id)
     
@@ -432,12 +444,11 @@ async def show_final_summary(message: types.Message, state: FSMContext, bot: Bot
     if is_profile_complete:
         text = (
             "🏁 <b>Почти готово! Проверьте ваш заказ</b>\n\n"
-            "Вы находитесь на финальном этапе сверки. Пожалуйста, убедитесь, что все параметры указаны верно:\n\n"
-            f"{params_text}\n\n"
+            f"{summary_text}\n\n"
             "➖➖➖➖➖➖➖➖\n"
             "🚀 <b>Что произойдет дальше?</b>\n"
             "После нажатия кнопки «Отправить», ваши параметры попадут к менеджеру. "
-            "Он рассчитает точную стоимость со всеми скидками и свяжется с вами для подтверждения заказа."
+            "Он рассчитает стоимость и свяжется с вами для подтверждения."
         )
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="🚀 ОТПРАВИТЬ МЕНЕДЖЕРУ", callback_data="l_submit")],
@@ -446,11 +457,10 @@ async def show_final_summary(message: types.Message, state: FSMContext, bot: Bot
     else:
         text = (
             "🏁 <b>Ваш заказ сформирован!</b>\n\n"
-            "Вы успешно собрали конфигурацию будущих листовок:\n\n"
-            f"{params_text}\n\n"
+            f"{summary_text}\n\n"
             "➖➖➖➖➖➖➖➖\n"
             "👋 <b>Давайте знакомиться!</b>\n"
-            "Чтобы менеджер мог рассчитать стоимость и связаться с вами, нужно заполнить контактные данные.\n"
+            "Чтобы менеджер мог связаться с вами, нужно заполнить контактные данные.\n"
             "<i>Это нужно сделать всего один раз, данные сохранятся для будущих заказов.</i>"
         )
         kb = InlineKeyboardMarkup(inline_keyboard=[
