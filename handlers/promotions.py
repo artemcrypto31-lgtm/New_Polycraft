@@ -384,6 +384,8 @@ async def submit_catalog_order(callback: types.CallbackQuery, state: FSMContext,
 # --- ВОЗВРАТ В МЕНЮ ---
 
 @router.callback_query(F.data == "back_to_main")
-async def back_to_main(callback: types.CallbackQuery, state: FSMContext):
+async def back_to_main(callback: types.CallbackQuery, state: FSMContext, db: Database):
     await state.clear()
-    await callback.message.edit_text(text=WELCOME_TEXT, reply_markup=get_main_menu())
+    from handlers.start import check_is_admin
+    is_admin = await check_is_admin(callback.from_user.id, db)
+    await callback.message.edit_text(text=WELCOME_TEXT, reply_markup=get_main_menu(is_admin=is_admin))

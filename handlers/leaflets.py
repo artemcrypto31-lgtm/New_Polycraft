@@ -446,9 +446,13 @@ async def show_final_summary(message: types.Message, state: FSMContext, bot: Bot
             "🏁 <b>Почти готово! Проверьте ваш заказ</b>\n\n"
             f"{summary_text}\n\n"
             "➖➖➖➖➖➖➖➖\n"
-            "🚀 <b>Что произойдет дальше?</b>\n"
-            "После нажатия кнопки «Отправить», ваши параметры попадут к менеджеру. "
-            "Он рассчитает стоимость и свяжется с вами для подтверждения."
+            "🚀 <b>Что произойдет после отправки?</b>\n\n"
+            "Ваш заказ будет немедленно передан нашему менеджеру. "
+            "Он внимательно изучит все параметры, подготовит точный расчёт стоимости "
+            "и отправит вам ответ <b>прямо в этот чат</b>. 💬\n\n"
+            "Обычно это занимает <b>от 15 до 30 минут</b> в рабочее время. "
+            "После получения цены вы сможете подтвердить заказ или обсудить детали с менеджером.\n\n"
+            "<i>Нажмите кнопку ниже, чтобы отправить заявку:</i> 👇"
         )
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="🚀 ОТПРАВИТЬ МЕНЕДЖЕРУ", callback_data="l_submit")],
@@ -456,12 +460,14 @@ async def show_final_summary(message: types.Message, state: FSMContext, bot: Bot
         ])
     else:
         text = (
-            "🏁 <b>Ваш заказ сформирован!</b>\n\n"
+            "🏁 <b>Отлично! Ваш заказ сформирован!</b>\n\n"
             f"{summary_text}\n\n"
             "➖➖➖➖➖➖➖➖\n"
-            "👋 <b>Давайте знакомиться!</b>\n"
-            "Чтобы менеджер мог связаться с вами, нужно заполнить контактные данные.\n"
-            "<i>Это нужно сделать всего один раз, данные сохранятся для будущих заказов.</i>"
+            "👋 <b>Давайте познакомимся!</b>\n\n"
+            "Для того чтобы менеджер мог оперативно связаться с вами и отправить расчёт стоимости, "
+            "нам потребуются ваши контактные данные.\n\n"
+            "📌 <i>Не переживайте — это нужно сделать всего один раз! "
+            "Ваши данные надёжно сохранятся в личном кабинете и будут автоматически подставляться при следующих заказах.</i>"
         )
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="📝 ПРЕДСТАВИТЬСЯ И ОТПРАВИТЬ", callback_data="l_reg_start")],
@@ -519,8 +525,11 @@ async def final_submit_handler(callback: types.CallbackQuery, state: FSMContext,
     await finalize_order(callback.message.chat, state, bot, callback.message, db)
 
 async def finalize_order(user_obj, state: FSMContext, bot: Bot, message_obj, db: Database):
+    from handlers.common import send_order_to_managers
+
     data = await state.get_data()
-    
+    summary = data.get('final_summary', '')
+
     params = {
         "format": data.get('format'),
         "color": data.get('color'),
@@ -529,49 +538,34 @@ async def finalize_order(user_obj, state: FSMContext, bot: Bot, message_obj, db:
         "paper_weight": data.get('paper'),
         "count": data.get('count')
     }
-    
+
     order = Order(
         user_id=user_obj.id,
         category="Листовки",
         params=params,
-        description=data.get('final_summary')
+        description=summary
     )
-    
-    order_id = await db.create_order(order)
-    
-    # Уведомления
-    admin_ids = [x.strip() for x in os.getenv("ADMIN_ID", "").split(",") if x.strip()]
-    manager_ids = await db.get_managers()
-    all_notif_ids = list(set(admin_ids + [str(mid) for mid in manager_ids]))
-    
-    db_user = await db.get_user(user_obj.id)
-    client_name = db_user.full_name if db_user and db_user.full_name else (user_obj.first_name if hasattr(user_obj, 'first_name') else "Клиент")
-    client_phone = db_user.phone if db_user and db_user.phone else "-"
-    username_str = f"(@{user_obj.username})" if hasattr(user_obj, 'username') and user_obj.username else ""
 
-    admin_text = (
-        f"⚡️ <b>НОВЫЙ ЗАКАЗ #{order_id} (Листовки)</b>\n"
-        f"👤 {client_name} {username_str}\n"
-        f"📞 {client_phone}\n\n"
-        f"{data.get('final_summary')}"
-    )
-    
-    for adm in all_notif_ids:
-        try: await bot.send_message(chat_id=adm, text=admin_text, parse_mode="HTML")
-        except: pass
+    order_id = await db.create_order(order)
+
+    await send_order_to_managers(order_id, user_obj.id, summary, "Листовки", bot, db)
 
     await state.clear()
-    
+
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="👤 Личный кабинет", callback_data="main_profile")],
         [InlineKeyboardButton(text="🏗 В каталог товаров", callback_data="main_constructor")],
         [InlineKeyboardButton(text="🏠 Главное меню", callback_data="back_to_main")]
     ])
-    
+
     await message_obj.answer(
-        f"🎉 <b>Заказ #{order_id} успешно отправлен!</b>\n\n"
-        "Менеджер уже получил уведомление и приступил к расчету. Обычно это занимает от 15 до 30 минут в рабочее время.\n\n"
-        "<b>Куда отправимся дальше?</b>",
+        f"✨ <b>Спасибо! Заказ #{order_id} успешно отправлен!</b> ✨\n\n"
+        "Информация о вашем заказе листовок уже передана нашему менеджеру. 🚀\n\n"
+        "Он внимательно изучит все параметры и подготовит точный расчёт стоимости. "
+        "Ответ с ценой придёт <b>прямо в этот чат</b> — вам останется только подтвердить или обсудить детали. 💬\n\n"
+        "⏱ <i>Обычно это занимает от 15 до 30 минут в рабочее время.</i>\n\n"
+        "<b>Благодарим за доверие к типографии «Поликрафт»!</b> 🙌\n\n"
+        "👇 <i>Чем займёмся, пока ждём ответ?</i>",
         reply_markup=kb,
         parse_mode="HTML"
     )

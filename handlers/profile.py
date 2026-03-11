@@ -8,7 +8,7 @@ from models import User
 
 router = Router()
 
-ACTIVE_STATUSES = ["pending_calculation", "in_work", "design", "ready"]
+ACTIVE_STATUSES = ["pending_calculation", "priced", "in_work", "design", "ready"]
 
 class ProfileEdit(StatesGroup):
     waiting_for_name = State()
@@ -164,6 +164,7 @@ async def process_address(message: types.Message, state: FSMContext, db: Databas
 
 STATUS_MAP = {
     "pending_calculation": "⏳ На просчете",
+    "priced": "💰 Ожидает подтверждения",
     "in_work": "⚙️ В работе",
     "design": "🎨 Дизайн",
     "ready": "✅ Готов к выдаче",

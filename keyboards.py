@@ -1,7 +1,7 @@
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
-def get_main_menu() -> InlineKeyboardMarkup:
+def get_main_menu(is_admin: bool = False) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.button(text="🏗️ Конструктор заказа", callback_data="main_constructor")
     builder.button(text="🔥 Акции и скидки", callback_data="main_promos")
@@ -9,6 +9,8 @@ def get_main_menu() -> InlineKeyboardMarkup:
     builder.button(text="📂 Макеты и требования", callback_data="main_docs")
     builder.button(text="👤 Личный Кабинет", callback_data="main_profile")
     builder.adjust(2)
+    if is_admin:
+        builder.row(InlineKeyboardButton(text="⚙️ Панель управления", callback_data="admin_panel"))
     return builder.as_markup()
 
 def get_profile_menu() -> InlineKeyboardMarkup:

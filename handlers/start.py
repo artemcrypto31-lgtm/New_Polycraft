@@ -1,3 +1,4 @@
+import os
 from aiogram import Router, types
 from aiogram.filters import CommandStart
 from database import Database
@@ -22,13 +23,21 @@ WELCOME_TEXT = (
     "👇 <i>Выберите нужный пункт в меню:</i>"
 )
 
+
+async def check_is_admin(user_id: int, db: Database) -> bool:
+    admin_ids = [x.strip() for x in os.getenv("ADMIN_ID", "").split(",") if x.strip()]
+    if str(user_id) in admin_ids:
+        return True
+    user = await db.get_user(user_id)
+    return user is not None and user.role in ("manager", "admin")
+
+
 @router.message(CommandStart())
 async def cmd_start(message: types.Message, db: Database):
     user_id = message.from_user.id
     username = message.from_user.username
     full_name = message.from_user.full_name
     
-    # Создаем объект пользователя для апсерта
     user = User(
         id=user_id,
         username=username,
@@ -36,7 +45,7 @@ async def cmd_start(message: types.Message, db: Database):
         role="client"
     )
     
-    # upsert_user сам решит: вставить нового или обновить существующего
     await db.upsert_user(user)
 
-    await message.answer(WELCOME_TEXT, reply_markup=get_main_menu())
+    is_admin = await check_is_admin(user_id, db)
+    await message.answer(WELCOME_TEXT, reply_markup=get_main_menu(is_admin=is_admin))

@@ -55,6 +55,12 @@ class Database:
                     FOREIGN KEY (user_id) REFERENCES users (id)
                 )
             """)
+            for col_name, col_type in [('manager_id', 'INTEGER')]:
+                try:
+                    await db.execute(f"ALTER TABLE orders ADD COLUMN {col_name} {col_type}")
+                except:
+                    pass
+
             # Таблица акций
             await db.execute("""
                 CREATE TABLE IF NOT EXISTS promotions (
@@ -155,6 +161,12 @@ class Database:
                     if isinstance(updated_at, str):
                         updated_at = datetime.fromisoformat(updated_at)
                     
+                    manager_id = None
+                    try:
+                        manager_id = row['manager_id']
+                    except (IndexError, KeyError):
+                        pass
+
                     orders.append(Order(
                         id=row['id'],
                         user_id=row['user_id'],
@@ -164,6 +176,7 @@ class Database:
                         files=row['files'].split(',') if row['files'] else [],
                         status=row['status'],
                         offered_price=row['offered_price'],
+                        manager_id=manager_id,
                         created_at=created_at,
                         updated_at=updated_at
                     ))
@@ -184,9 +197,145 @@ class Database:
                 )
             await db.commit()
 
+    async def get_order(self, order_id: int) -> Optional[Order]:
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute("SELECT * FROM orders WHERE id = ?", (order_id,)) as cursor:
+                row = await cursor.fetchone()
+                if row:
+                    created_at = row['created_at']
+                    updated_at = row['updated_at']
+                    if isinstance(created_at, str):
+                        created_at = datetime.fromisoformat(created_at)
+                    if isinstance(updated_at, str):
+                        updated_at = datetime.fromisoformat(updated_at)
+
+                    manager_id = None
+                    try:
+                        manager_id = row['manager_id']
+                    except (IndexError, KeyError):
+                        pass
+
+                    return Order(
+                        id=row['id'],
+                        user_id=row['user_id'],
+                        category=row['category'],
+                        params=json.loads(row['params']),
+                        description=row['description'],
+                        files=row['files'].split(',') if row['files'] else [],
+                        status=row['status'],
+                        offered_price=row['offered_price'],
+                        manager_id=manager_id,
+                        created_at=created_at,
+                        updated_at=updated_at
+                    )
+                return None
+
+    async def set_order_price(self, order_id: int, price: float, manager_id: int):
+        async with aiosqlite.connect(self.db_path) as db:
+            now = datetime.now().isoformat()
+            await db.execute(
+                "UPDATE orders SET offered_price = ?, manager_id = ?, status = 'priced', updated_at = ? WHERE id = ?",
+                (price, manager_id, now, order_id)
+            )
+            await db.commit()
+
     async def get_managers(self) -> List[int]:
         """Возвращает список ID всех пользователей с ролью manager или admin."""
         async with aiosqlite.connect(self.db_path) as db:
             async with db.execute("SELECT id FROM users WHERE role IN ('manager', 'admin')") as cursor:
                 rows = await cursor.fetchall()
                 return [row[0] for row in rows]
+
+    async def get_all_orders(self, status: Optional[str] = None, limit: int = 50) -> List[Order]:
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            if status:
+                query = "SELECT * FROM orders WHERE status = ? ORDER BY created_at DESC LIMIT ?"
+                params = (status, limit)
+            else:
+                query = "SELECT * FROM orders ORDER BY created_at DESC LIMIT ?"
+                params = (limit,)
+            async with db.execute(query, params) as cursor:
+                rows = await cursor.fetchall()
+                orders = []
+                for row in rows:
+                    created_at = row['created_at']
+                    updated_at = row['updated_at']
+                    if isinstance(created_at, str):
+                        created_at = datetime.fromisoformat(created_at)
+                    if isinstance(updated_at, str):
+                        updated_at = datetime.fromisoformat(updated_at)
+                    manager_id = None
+                    try:
+                        manager_id = row['manager_id']
+                    except (IndexError, KeyError):
+                        pass
+                    orders.append(Order(
+                        id=row['id'],
+                        user_id=row['user_id'],
+                        category=row['category'],
+                        params=json.loads(row['params']),
+                        description=row['description'],
+                        files=row['files'].split(',') if row['files'] else [],
+                        status=row['status'],
+                        offered_price=row['offered_price'],
+                        manager_id=manager_id,
+                        created_at=created_at,
+                        updated_at=updated_at
+                    ))
+                return orders
+
+    async def get_order_stats(self) -> dict:
+        async with aiosqlite.connect(self.db_path) as db:
+            stats = {}
+            async with db.execute("SELECT status, COUNT(*) FROM orders GROUP BY status") as cursor:
+                rows = await cursor.fetchall()
+                for row in rows:
+                    stats[row[0]] = row[1]
+            async with db.execute("SELECT COUNT(*) FROM orders") as cursor:
+                row = await cursor.fetchone()
+                stats['total'] = row[0]
+            return stats
+
+    async def get_all_users(self, limit: int = 50) -> List[User]:
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute("SELECT * FROM users ORDER BY created_at DESC LIMIT ?", (limit,)) as cursor:
+                rows = await cursor.fetchall()
+                users = []
+                for row in rows:
+                    created_at = row['created_at']
+                    if isinstance(created_at, str):
+                        created_at = datetime.fromisoformat(created_at)
+                    users.append(User(
+                        id=row['id'],
+                        username=row['username'],
+                        full_name=row['full_name'],
+                        phone=row['phone'],
+                        org_name=row['org_name'],
+                        city=row['city'],
+                        address=row['address'],
+                        email=row['email'],
+                        role=row['role'],
+                        created_at=created_at
+                    ))
+                return users
+
+    async def get_user_stats(self) -> dict:
+        async with aiosqlite.connect(self.db_path) as db:
+            stats = {}
+            async with db.execute("SELECT COUNT(*) FROM users") as cursor:
+                stats['total'] = (await cursor.fetchone())[0]
+            async with db.execute("SELECT COUNT(*) FROM users WHERE role = 'client'") as cursor:
+                stats['clients'] = (await cursor.fetchone())[0]
+            async with db.execute("SELECT COUNT(*) FROM users WHERE role = 'manager'") as cursor:
+                stats['managers'] = (await cursor.fetchone())[0]
+            async with db.execute("SELECT COUNT(*) FROM users WHERE role = 'admin'") as cursor:
+                stats['admins'] = (await cursor.fetchone())[0]
+            return stats
+
+    async def set_user_role(self, user_id: int, role: str):
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute("UPDATE users SET role = ? WHERE id = ?", (role, user_id))
+            await db.commit()

@@ -23,6 +23,7 @@ class Order(BaseModel):
     files: List[str] = []   # Список file_id
     status: str = "pending_calculation"
     offered_price: float = 0.0
+    manager_id: Optional[int] = None
     created_at: datetime = Field(default_factory=datetime.now)
     updated_at: datetime = Field(default_factory=datetime.now)
 
