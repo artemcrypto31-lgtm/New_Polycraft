@@ -81,7 +81,7 @@ TEXT_MULTIPAGE_HELP = (
 
 def kb_catalog_root():
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="💳 Визитки", callback_data="prod_Визитки")],
+        #[InlineKeyboardButton(text="💳 Визитки", callback_data="prod_Визитки")],
         [InlineKeyboardButton(text="📢 Листовки/Реклама", callback_data="cat_promo"),
          InlineKeyboardButton(text="📚 Книги/Журналы", callback_data="cat_multipage")],
         [InlineKeyboardButton(text="📦 Упаковка/Наклейки", callback_data="prod_Упаковка"),
