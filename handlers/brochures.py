@@ -1,0 +1,725 @@
+from aiogram import Router, F, types, Bot
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from handlers.orders import kb_cat_multipage, TEXT_MULTIPAGE
+from database import Database
+from models import Order
+
+router = Router()
+TOTAL_STEPS = 12
+
+class BrochureCalc(StatesGroup):
+    step_format = State()
+    step_orientation = State()
+    step_binding = State()
+    step_cover_paper = State()
+    step_cover_color = State()
+    step_cover_finish = State()
+    step_block_pages = State()
+    step_block_color = State()
+    step_block_paper_type = State()
+    step_block_paper_weight = State()
+    step_services = State()
+    step_circulation = State()
+    reg_name = State()
+    reg_phone = State()
+    reg_city = State()
+    reg_address = State()
+
+def get_progress_bar(current: int, total: int) -> str:
+    filled = int((current / total) * 10)
+    bar = "▰" * filled + "▱" * (10 - filled)
+    percent = int((current / total) * 100)
+    return f"📊 <b>Шаг {current} из {total}</b> [{bar}] {percent}%\n\n"
+
+def get_breadcrumbs(data: dict, current_step: int) -> str:
+    progress = get_progress_bar(current_step, TOTAL_STEPS)
+    sections = []
+
+    gen = []
+    if current_step > 1 and data.get('format_name'): gen.append(f"• Формат: <b>{data['format_name']}</b>")
+    if current_step > 2 and data.get('orientation'): gen.append(f"• Ориентация: <b>{data['orientation']}</b>")
+    if current_step > 3 and data.get('binding'): gen.append(f"• Переплет: <b>{data['binding']}</b>")
+    if gen: sections.append("🔧 <b>ОБЩИЕ:</b>\n" + "\n".join(gen))
+
+    cov = []
+    if current_step > 4 and data.get('cover_paper'): cov.append(f"• Плотность: <b>{data['cover_paper']}</b>")
+    if current_step > 5 and data.get('cover_color'): cov.append(f"• Цветность: <b>{data['cover_color']}</b>")
+    finishes = data.get('cover_finishes_list', [])
+    if current_step > 6:
+        if finishes: cov.append(f"• Отделка: <b>{', '.join(finishes)}</b>")
+        elif data.get('cover_finish_done'): cov.append("• Отделка: <b>Нет</b>")
+    if cov: sections.append("📕 <b>ОБЛОЖКА:</b>\n" + "\n".join(cov))
+
+    blk = []
+    if current_step > 7 and data.get('block_pages'): blk.append(f"• Страниц: <b>{data['block_pages']}</b>")
+    if current_step > 8 and data.get('block_color'): blk.append(f"• Цветность: <b>{data['block_color']}</b>")
+    if current_step > 9 and data.get('block_paper_type'): blk.append(f"• Бумага: <b>{data['block_paper_type']}</b>")
+    if current_step > 10 and data.get('block_paper_weight'): blk.append(f"• Плотность: <b>{data['block_paper_weight']}</b>")
+    if blk: sections.append("📄 <b>БЛОК:</b>\n" + "\n".join(blk))
+
+    if not sections:
+        return progress
+    return progress + "📝 <b>Ваш заказ:</b>\n\n" + "\n\n".join(sections) + "\n➖➖➖➖➖➖➖➖\n"
+
+async def smart_edit(message: types.Message, text: str, kb: InlineKeyboardMarkup):
+    try:
+        await message.edit_text(text=text, reply_markup=kb, parse_mode="HTML")
+    except Exception:
+        await message.answer(text=text, reply_markup=kb, parse_mode="HTML")
+
+async def show_help(callback: types.CallbackQuery, text: str, back_callback: str):
+    await callback.answer()
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔙 Понятно, вернуться", callback_data=back_callback)]
+    ])
+    await smart_edit(callback.message, text, kb)
+
+@router.callback_query(F.data.in_({"prod_Брошюры", "start_calc_brochure"}))
+async def step_1_format(callback: types.CallbackQuery, state: FSMContext):
+    await callback.answer()
+    await state.clear()
+    await state.set_state(BrochureCalc.step_format)
+    text = (
+        f"{get_breadcrumbs({}, 1)}"
+        "📐 <b>Шаг 1. Формат брошюры</b>\n"
+        "Укажите конечный размер изделия после скрепления.\n\n"
+        "💡 <i>Самый популярный формат для брошюр — А5.</i>"
+    )
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="А4 (210×297)", callback_data="bro_fmt_A4"),
+         InlineKeyboardButton(text="А5 (148×210)", callback_data="bro_fmt_A5")],
+        [InlineKeyboardButton(text="А6 (105×148)", callback_data="bro_fmt_A6"),
+         InlineKeyboardButton(text="165×240 мм", callback_data="bro_fmt_Crown")],
+        [InlineKeyboardButton(text="ℹ️ Справка", callback_data="help_bro_fmt"),
+         InlineKeyboardButton(text="🔙 В меню", callback_data="stop_calc_brochure")]
+    ])
+    await smart_edit(callback.message, text, kb)
+
+@router.callback_query(F.data == "stop_calc_brochure")
+async def stop_calc(callback: types.CallbackQuery, state: FSMContext):
+    await callback.answer()
+    await state.clear()
+    await callback.message.edit_text(TEXT_MULTIPAGE, reply_markup=kb_cat_multipage(), parse_mode="HTML")
+
+@router.callback_query(F.data == "help_bro_fmt")
+async def help_fmt(callback: types.CallbackQuery):
+    await show_help(callback,
+        "<b>Как выбрать формат брошюры?</b>\n\n"
+        "📗 <b>А5 (148×210 мм)</b>\nСамый популярный. Компактный и удобный, легко помещается в сумку. "
+        "Подходит для инструкций, каталогов услуг и корпоративных материалов.\n\n"
+        "📘 <b>А4 (210×297 мм)</b>\nМного места для текста и фото. Подходит для отчётов, "
+        "технических описаний и презентаций.\n\n"
+        "📙 <b>А6 (105×148 мм)</b>\nМини-формат. Карманная брошюра, купон или памятка.\n\n"
+        "👑 <b>165×240 мм</b>\nНестандартный «королевский» размер. Выглядит дорого и "
+        "выделяется среди стандартных изданий.", "start_calc_brochure")
+
+@router.callback_query(BrochureCalc.step_format, F.data.startswith("bro_fmt_"))
+async def process_format(callback: types.CallbackQuery, state: FSMContext):
+    code = callback.data.replace("bro_fmt_", "")
+    names = {"A4": "А4", "A5": "А5", "A6": "А6", "Crown": "165×240 мм"}
+    await state.update_data(format_code=code, format_name=names.get(code, code))
+    await callback.answer()
+    await step_2_orientation(callback.message, state)
+
+async def step_2_orientation(message: types.Message, state: FSMContext):
+    await state.set_state(BrochureCalc.step_orientation)
+    data = await state.get_data()
+    text = (
+        f"{get_breadcrumbs(data, 2)}"
+        "🔄 <b>Шаг 2. Ориентация страниц</b>\n\n"
+        "↕️ <b>Вертикальная (Книжная)</b> — классика, переплет по длинной стороне.\n"
+        "↔️ <b>Горизонтальная (Альбомная)</b> — широкие страницы, переплет по короткой стороне."
+    )
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="↕️ Вертикальная", callback_data="bro_orient_vert"),
+         InlineKeyboardButton(text="↔️ Горизонтальная", callback_data="bro_orient_horiz")],
+        [InlineKeyboardButton(text="🔙 Назад", callback_data="start_calc_brochure")]
+    ])
+    await smart_edit(message, text, kb)
+
+@router.callback_query(BrochureCalc.step_orientation, F.data.startswith("bro_orient_"))
+async def process_orientation(callback: types.CallbackQuery, state: FSMContext):
+    orient = "Вертикальная" if "vert" in callback.data else "Горизонтальная"
+    await state.update_data(orientation=orient)
+    await callback.answer()
+    await step_3_binding(callback.message, state)
+
+async def step_3_binding(message: types.Message, state: FSMContext):
+    await state.set_state(BrochureCalc.step_binding)
+    data = await state.get_data()
+    text = (
+        f"{get_breadcrumbs(data, 3)}"
+        "🔗 <b>Шаг 3. Способ скрепления</b>\n\n"
+        "📎 <b>Скоба</b> — две металлические скрепки по центру. Бюджетно, до 48 стр.\n"
+        "➰ <b>Пружина</b> — металлическая спираль. Открывается на 360°, удобно листать.\n"
+        "📚 <b>КБС (клей)</b> — проклеенный корешок. Солидно, от 48 стр.\n"
+        "💎 <b>PUR-клей</b> — усиленный клей. Максимальная прочность."
+    )
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📎 Скоба", callback_data="bro_bind_Скоба"),
+         InlineKeyboardButton(text="➰ Пружина", callback_data="bro_bind_Пружина")],
+        [InlineKeyboardButton(text="📚 КБС (клей)", callback_data="bro_bind_КБС"),
+         InlineKeyboardButton(text="💎 PUR-клей", callback_data="bro_bind_PUR-клей")],
+        [InlineKeyboardButton(text="ℹ️ Справка", callback_data="help_bro_bind"),
+         InlineKeyboardButton(text="🔙 Назад", callback_data="bro_back_step_2")]
+    ])
+    await smart_edit(message, text, kb)
+
+@router.callback_query(F.data == "help_bro_bind")
+async def help_bind(callback: types.CallbackQuery):
+    await show_help(callback,
+        "<b>Какое скрепление выбрать?</b>\n\n"
+        "📎 <b>Скоба</b>\nДля тонких брошюр до 48 страниц. Раскрывается на 180°. "
+        "Самый бюджетный вариант. Подходит для рекламных материалов и инструкций.\n\n"
+        "➰ <b>Пружина</b>\nМожно вывернуть наизнанку (360°). Идеально для рабочих "
+        "тетрадей, презентаций и материалов, которые лежат открытыми на столе.\n\n"
+        "📚 <b>КБС (клеевое бесшвейное)</b>\nОбразует ровный квадратный корешок. "
+        "Стандарт для толстых каталогов и корпоративных брошюр от 48 страниц.\n\n"
+        "💎 <b>PUR-клей</b>\nСамое прочное клеевое скрепление. Брошюра не рассыплется "
+        "даже при активном использовании. Наша фишка!", "bro_back_step_3")
+
+@router.callback_query(F.data == "bro_back_step_2")
+async def back_to_step_2(callback: types.CallbackQuery, state: FSMContext):
+    await callback.answer()
+    await step_2_orientation(callback.message, state)
+
+@router.callback_query(F.data == "bro_back_step_3")
+async def back_to_step_3(callback: types.CallbackQuery, state: FSMContext):
+    await callback.answer()
+    await step_3_binding(callback.message, state)
+
+@router.callback_query(BrochureCalc.step_binding, F.data.startswith("bro_bind_"))
+async def process_binding(callback: types.CallbackQuery, state: FSMContext):
+    await state.update_data(binding=callback.data.replace("bro_bind_", ""))
+    await callback.answer()
+    await step_4_cover_paper(callback.message, state)
+
+async def step_4_cover_paper(message: types.Message, state: FSMContext):
+    await state.set_state(BrochureCalc.step_cover_paper)
+    data = await state.get_data()
+    text = (
+        f"{get_breadcrumbs(data, 4)}"
+        "📄 <b>Шаг 4. Плотность бумаги обложки</b>\n"
+        "Чем плотнее — тем прочнее и презентабельнее.\n\n"
+        "<i>Офисная бумага — 80 г/м², стандартная визитка — 300 г/м²</i>"
+    )
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="150 г/м²", callback_data="bro_cpap_150"),
+         InlineKeyboardButton(text="170 г/м²", callback_data="bro_cpap_170"),
+         InlineKeyboardButton(text="200 г/м²", callback_data="bro_cpap_200")],
+        [InlineKeyboardButton(text="250 г/м²", callback_data="bro_cpap_250"),
+         InlineKeyboardButton(text="300 г/м²", callback_data="bro_cpap_300"),
+         InlineKeyboardButton(text="350 г/м²", callback_data="bro_cpap_350")],
+        [InlineKeyboardButton(text="ℹ️ Справка", callback_data="help_bro_cpap"),
+         InlineKeyboardButton(text="🔙 Назад", callback_data="bro_back_step_3")]
+    ])
+    await smart_edit(message, text, kb)
+
+@router.callback_query(F.data == "help_bro_cpap")
+async def help_cover_paper(callback: types.CallbackQuery):
+    await show_help(callback,
+        "<b>Как выбрать плотность обложки?</b>\n\n"
+        "🔹 <b>150-170 г/м²</b>\nГибкая тонкая обложка. Для бюджетных брошюр и "
+        "массовых раздаточных материалов.\n\n"
+        "🔹 <b>200-250 г/м² (Рекомендуем)</b>\nЗолотой стандарт. Обложка хорошо "
+        "держит форму. Классика для корпоративных брошюр.\n\n"
+        "🔹 <b>300-350 г/м²</b>\nПочти картон. Брошюра ощущается дорого и массивно. "
+        "Для премиальных изданий.", "bro_back_step_4")
+
+@router.callback_query(F.data == "bro_back_step_4")
+async def back_to_step_4(callback: types.CallbackQuery, state: FSMContext):
+    await callback.answer()
+    await step_4_cover_paper(callback.message, state)
+
+@router.callback_query(BrochureCalc.step_cover_paper, F.data.startswith("bro_cpap_"))
+async def process_cover_paper(callback: types.CallbackQuery, state: FSMContext):
+    weight = callback.data.replace("bro_cpap_", "")
+    await state.update_data(cover_paper=f"{weight} г/м²")
+    await callback.answer()
+    await step_5_cover_color(callback.message, state)
+
+async def step_5_cover_color(message: types.Message, state: FSMContext):
+    await state.set_state(BrochureCalc.step_cover_color)
+    data = await state.get_data()
+    text = (
+        f"{get_breadcrumbs(data, 5)}"
+        "🎨 <b>Шаг 5. Цветность обложки</b>\n\n"
+        "1️⃣ <b>4+4</b> — полноцвет с двух сторон (снаружи и внутри)\n"
+        "2️⃣ <b>4+1</b> — снаружи цветная, внутри чёрно-белая\n"
+        "3️⃣ <b>4+0</b> — цветная только снаружи, внутри пусто\n"
+        "4️⃣ <b>1+1</b> — чёрно-белая с двух сторон"
+    )
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="4+4", callback_data="bro_ccol_4+4"),
+         InlineKeyboardButton(text="4+1", callback_data="bro_ccol_4+1")],
+        [InlineKeyboardButton(text="4+0", callback_data="bro_ccol_4+0"),
+         InlineKeyboardButton(text="1+1", callback_data="bro_ccol_1+1")],
+        [InlineKeyboardButton(text="🔙 Назад", callback_data="bro_back_step_4")]
+    ])
+    await smart_edit(message, text, kb)
+
+@router.callback_query(BrochureCalc.step_cover_color, F.data.startswith("bro_ccol_"))
+async def process_cover_color(callback: types.CallbackQuery, state: FSMContext):
+    await state.update_data(cover_color=callback.data.replace("bro_ccol_", ""))
+    await callback.answer()
+    await step_6_cover_finish(callback.message, state)
+
+def kb_cover_finish(sel: list) -> InlineKeyboardMarkup:
+    def t(label, key): return f"✅ {label}" if key in sel else label
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=t("🛡 Ламинация", "Ламинация"), callback_data="bro_fin_toggle_Ламинация"),
+         InlineKeyboardButton(text=t("🔥 Тиснение", "Тиснение"), callback_data="bro_fin_toggle_Тиснение")],
+        [InlineKeyboardButton(text=t("💧 УФ-лак", "УФ-лак"), callback_data="bro_fin_toggle_УФ-лак")],
+        [InlineKeyboardButton(text="➡️ Готово / Пропустить", callback_data="bro_fin_done")],
+        [InlineKeyboardButton(text="ℹ️ Справка", callback_data="help_bro_finish"),
+         InlineKeyboardButton(text="🔙 Назад", callback_data="bro_back_step_5")]
+    ])
+
+async def step_6_cover_finish(message: types.Message, state: FSMContext):
+    await state.set_state(BrochureCalc.step_cover_finish)
+    data = await state.get_data()
+    text = (
+        f"{get_breadcrumbs(data, 6)}"
+        "✨ <b>Шаг 6. Отделка обложки</b>\n"
+        "<i>Можно выбрать несколько или пропустить</i>\n\n"
+        "🛡 <b>Ламинация</b> — защитная плёнка (глянец или мат)\n"
+        "🔥 <b>Тиснение</b> — рельефный логотип или фольга\n"
+        "💧 <b>УФ-лак</b> — блестящее выделение элементов"
+    )
+    await smart_edit(message, text, kb_cover_finish(data.get("cover_finishes_list", [])))
+
+@router.callback_query(F.data == "help_bro_finish")
+async def help_finish(callback: types.CallbackQuery):
+    await show_help(callback,
+        "<b>Зачем нужна отделка обложки?</b>\n\n"
+        "🛡 <b>Ламинация</b>\nЗащищает от царапин, влаги и заломов. Глянцевая делает "
+        "цвета ярче, матовая убирает блики — выглядит дорого.\n\n"
+        "🔥 <b>Тиснение (фольга или блинт)</b>\nЛоготип становится золотым, серебряным "
+        "или просто рельефным. Создаёт wow-эффект при первом касании.\n\n"
+        "💧 <b>Выборочный УФ-лак</b>\nОбложка матовая, но логотип или фото блестят. "
+        "Элемент становится объёмным и притягивает взгляд.", "bro_back_step_6")
+
+@router.callback_query(F.data == "bro_back_step_5")
+async def back_to_step_5(callback: types.CallbackQuery, state: FSMContext):
+    await callback.answer()
+    await step_5_cover_color(callback.message, state)
+
+@router.callback_query(F.data == "bro_back_step_6")
+async def back_to_step_6(callback: types.CallbackQuery, state: FSMContext):
+    await callback.answer()
+    await step_6_cover_finish(callback.message, state)
+
+@router.callback_query(BrochureCalc.step_cover_finish, F.data.startswith("bro_fin_toggle_"))
+async def toggle_finish(callback: types.CallbackQuery, state: FSMContext):
+    item = callback.data.replace("bro_fin_toggle_", "")
+    data = await state.get_data()
+    sel = data.get("cover_finishes_list", [])
+    if item in sel: sel.remove(item)
+    else: sel.append(item)
+    await state.update_data(cover_finishes_list=sel)
+    try: await callback.message.edit_reply_markup(reply_markup=kb_cover_finish(sel))
+    except: pass
+    await callback.answer()
+
+@router.callback_query(F.data == "bro_fin_done")
+async def finish_done(callback: types.CallbackQuery, state: FSMContext):
+    await state.update_data(cover_finish_done=True)
+    await callback.answer()
+    await step_7_block_pages(callback.message, state)
+
+async def step_7_block_pages(message: types.Message, state: FSMContext):
+    await state.set_state(BrochureCalc.step_block_pages)
+    data = await state.get_data()
+    text = (
+        f"{get_breadcrumbs(data, 7)}"
+        "📄 <b>Шаг 7. Количество страниц блока</b>\n"
+        "Считаем страницы без обложки.\n\n"
+        "❗ <b>Число страниц должно делиться на 4</b> (4, 8, 12, 16, 20...)\n\n"
+        "<i>Выберите из списка или введите число вручную в чат:</i>"
+    )
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="4", callback_data="bro_pages_4"),
+         InlineKeyboardButton(text="8", callback_data="bro_pages_8"),
+         InlineKeyboardButton(text="12", callback_data="bro_pages_12"),
+         InlineKeyboardButton(text="16", callback_data="bro_pages_16")],
+        [InlineKeyboardButton(text="20", callback_data="bro_pages_20"),
+         InlineKeyboardButton(text="24", callback_data="bro_pages_24"),
+         InlineKeyboardButton(text="32", callback_data="bro_pages_32"),
+         InlineKeyboardButton(text="48", callback_data="bro_pages_48")],
+        [InlineKeyboardButton(text="ℹ️ Справка", callback_data="help_bro_pages"),
+         InlineKeyboardButton(text="🔙 Назад", callback_data="bro_back_step_6")]
+    ])
+    await smart_edit(message, text, kb)
+
+@router.callback_query(F.data == "help_bro_pages")
+async def help_pages(callback: types.CallbackQuery):
+    await show_help(callback,
+        "<b>Почему страницы кратны 4?</b>\n\n"
+        "Брошюры печатаются на больших листах, которые складываются пополам. "
+        "Один сложенный лист — это 4 страницы. Поэтому 5, 7 или 10 страниц "
+        "сделать невозможно — останутся пустые белые листы.\n\n"
+        "Если у вас 10 страниц контента — добавьте 2 пустые страницы "
+        "и закажите 12.", "bro_back_step_7")
+
+@router.callback_query(F.data == "bro_back_step_7")
+async def back_to_step_7(callback: types.CallbackQuery, state: FSMContext):
+    await callback.answer()
+    await step_7_block_pages(callback.message, state)
+
+@router.callback_query(BrochureCalc.step_block_pages, F.data.startswith("bro_pages_"))
+async def process_pages_btn(callback: types.CallbackQuery, state: FSMContext):
+    pages = int(callback.data.replace("bro_pages_", ""))
+    await state.update_data(block_pages=pages)
+    await callback.answer()
+    await step_8_block_color(callback.message, state)
+
+@router.message(BrochureCalc.step_block_pages)
+async def process_pages_text(message: types.Message, state: FSMContext):
+    try: await message.delete()
+    except: pass
+    if not message.text.isdigit():
+        await message.answer("⚠️ Введите только число!")
+        return
+    pages = int(message.text)
+    if pages < 4:
+        await message.answer("⚠️ Минимум 4 страницы!")
+        return
+    if pages % 4 != 0:
+        await message.answer(
+            f"⚠️ Число страниц должно делиться на 4!\n"
+            f"<i>Ближайшие варианты: {pages - (pages%4)} или {pages + (4 - pages%4)}</i>",
+            parse_mode="HTML"
+        )
+        return
+    await state.update_data(block_pages=pages)
+    await step_8_block_color(message, state)
+
+async def step_8_block_color(message: types.Message, state: FSMContext):
+    await state.set_state(BrochureCalc.step_block_color)
+    data = await state.get_data()
+    text = (
+        f"{get_breadcrumbs(data, 8)}"
+        "🎨 <b>Шаг 8. Цветность внутренних страниц</b>\n\n"
+        "1️⃣ <b>1+1 (ЧБ)</b> — только текст и чёрно-белые схемы\n"
+        "2️⃣ <b>2+2</b> — чёрный + один фирменный цвет\n"
+        "3️⃣ <b>4+4 (Полноцвет)</b> — цветные фото на каждой странице"
+    )
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="1+1 (ЧБ)", callback_data="bro_bcol_1+1"),
+         InlineKeyboardButton(text="2+2 (2 цвета)", callback_data="bro_bcol_2+2")],
+        [InlineKeyboardButton(text="4+4 (Полноцвет)", callback_data="bro_bcol_4+4")],
+        [InlineKeyboardButton(text="🔙 Назад", callback_data="bro_back_step_7")]
+    ])
+    await smart_edit(message, text, kb)
+
+@router.callback_query(BrochureCalc.step_block_color, F.data.startswith("bro_bcol_"))
+async def process_block_color(callback: types.CallbackQuery, state: FSMContext):
+    await state.update_data(block_color=callback.data.replace("bro_bcol_", ""))
+    await callback.answer()
+    await step_9_block_paper_type(callback.message, state)
+
+async def step_9_block_paper_type(message: types.Message, state: FSMContext):
+    await state.set_state(BrochureCalc.step_block_paper_type)
+    data = await state.get_data()
+    text = (
+        f"{get_breadcrumbs(data, 9)}"
+        "📄 <b>Шаг 9. Вид бумаги страниц</b>\n\n"
+        "📝 <b>Офсетная</b> — матовая, без покрытия. Можно писать ручкой.\n"
+        "✨ <b>Мелованная глянцевая</b> — яркие сочные фото.\n"
+        "☁️ <b>Мелованная матовая</b> — без бликов, комфортно читать."
+    )
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📝 Офсетная", callback_data="bro_btype_Офсетная")],
+        [InlineKeyboardButton(text="✨ Меловая глянец", callback_data="bro_btype_Меловая глянец"),
+         InlineKeyboardButton(text="☁️ Меловая мат", callback_data="bro_btype_Меловая мат")],
+        [InlineKeyboardButton(text="🔙 Назад", callback_data="bro_back_step_8")]
+    ])
+    await smart_edit(message, text, kb)
+
+@router.callback_query(F.data == "bro_back_step_8")
+async def back_to_step_8(callback: types.CallbackQuery, state: FSMContext):
+    await callback.answer()
+    await step_8_block_color(callback.message, state)
+
+@router.callback_query(BrochureCalc.step_block_paper_type, F.data.startswith("bro_btype_"))
+async def process_block_paper_type(callback: types.CallbackQuery, state: FSMContext):
+    ptype = callback.data.replace("bro_btype_", "")
+    await state.update_data(block_paper_type=ptype)
+    await callback.answer()
+    await step_10_block_paper_weight(callback.message, state)
+
+async def step_10_block_paper_weight(message: types.Message, state: FSMContext):
+    await state.set_state(BrochureCalc.step_block_paper_weight)
+    data = await state.get_data()
+    ptype = data.get("block_paper_type", "")
+    text = (
+        f"{get_breadcrumbs(data, 10)}"
+        f"⚖️ <b>Шаг 10. Плотность бумаги блока ({ptype})</b>\n"
+        "Тонкая бумага просвечивает, толстая делает брошюру тяжелее. "
+        "Оптимум для цветной печати — 115-130 г/м²."
+    )
+    if "Офсетная" in ptype:
+        buttons = [
+            [InlineKeyboardButton(text="65 г/м²", callback_data="bro_bw_65"),
+             InlineKeyboardButton(text="80 г/м²", callback_data="bro_bw_80")],
+            [InlineKeyboardButton(text="90 г/м²", callback_data="bro_bw_90"),
+             InlineKeyboardButton(text="120 г/м²", callback_data="bro_bw_120")]
+        ]
+    else:
+        buttons = [
+            [InlineKeyboardButton(text="90 г/м²", callback_data="bro_bw_90"),
+             InlineKeyboardButton(text="115 г/м²", callback_data="bro_bw_115"),
+             InlineKeyboardButton(text="130 г/м²", callback_data="bro_bw_130")],
+            [InlineKeyboardButton(text="150 г/м²", callback_data="bro_bw_150"),
+             InlineKeyboardButton(text="170 г/м²", callback_data="bro_bw_170"),
+             InlineKeyboardButton(text="200 г/м²", callback_data="bro_bw_200")]
+        ]
+    buttons.append([InlineKeyboardButton(text="🔙 Назад", callback_data="bro_back_step_9")])
+    await smart_edit(message, text, InlineKeyboardMarkup(inline_keyboard=buttons))
+
+@router.callback_query(F.data == "bro_back_step_9")
+async def back_to_step_9(callback: types.CallbackQuery, state: FSMContext):
+    await callback.answer()
+    await step_9_block_paper_type(callback.message, state)
+
+@router.callback_query(BrochureCalc.step_block_paper_weight, F.data.startswith("bro_bw_"))
+async def process_block_weight(callback: types.CallbackQuery, state: FSMContext):
+    weight = callback.data.replace("bro_bw_", "")
+    await state.update_data(block_paper_weight=f"{weight} г/м²")
+    await callback.answer()
+    await step_11_services(callback.message, state)
+
+def kb_services(selected: list) -> InlineKeyboardMarkup:
+    def t(label, key): return f"✅ {label}" if key in selected else label
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=t("💻 Верстка", "Верстка"), callback_data="bro_srv_toggle_Верстка"),
+         InlineKeyboardButton(text=t("📝 Корректура", "Корректура"), callback_data="bro_srv_toggle_Корректура")],
+        [InlineKeyboardButton(text="➡️ Рассчитать заказ", callback_data="bro_srv_done")],
+        [InlineKeyboardButton(text="ℹ️ Справка", callback_data="help_bro_srv"),
+         InlineKeyboardButton(text="🔙 Назад", callback_data="bro_back_step_10")]
+    ])
+
+async def step_11_services(message: types.Message, state: FSMContext):
+    await state.set_state(BrochureCalc.step_services)
+    data = await state.get_data()
+    selected = data.get("services_list", [])
+    text = (
+        f"{get_breadcrumbs(data, 11)}"
+        "🛠 <b>Шаг 11. Дополнительные услуги</b>\n"
+        "<i>Выберите нужное или сразу жмите «Рассчитать заказ»</i>\n\n"
+        "💻 <b>Верстка</b> — сделаем макет из вашего текста и фото\n"
+        "📝 <b>Корректура</b> — проверим текст на ошибки и опечатки"
+    )
+    await smart_edit(message, text, kb_services(selected))
+
+@router.callback_query(F.data == "help_bro_srv")
+async def help_srv(callback: types.CallbackQuery):
+    await show_help(callback,
+        "<b>Дополнительные услуги типографии:</b>\n\n"
+        "💻 <b>Верстка и дизайн</b>\nЕсть текст в Word и папка с фото? Наш верстальщик "
+        "оформит всё по правилам полиграфии: шрифты, отступы, поля, "
+        "подготовит файл к печати.\n\n"
+        "📝 <b>Корректура и редактура</b>\nПрофессиональный корректор вычитает текст, "
+        "исправит запятые, опечатки и стилистические ошибки.", "bro_back_step_11")
+
+@router.callback_query(F.data == "bro_back_step_10")
+async def back_to_step_10(callback: types.CallbackQuery, state: FSMContext):
+    await callback.answer()
+    await step_10_block_paper_weight(callback.message, state)
+
+@router.callback_query(F.data == "bro_back_step_11")
+async def back_to_step_11(callback: types.CallbackQuery, state: FSMContext):
+    await callback.answer()
+    await step_11_services(callback.message, state)
+
+@router.callback_query(BrochureCalc.step_services, F.data.startswith("bro_srv_toggle_"))
+async def toggle_service(callback: types.CallbackQuery, state: FSMContext):
+    item = callback.data.replace("bro_srv_toggle_", "")
+    data = await state.get_data()
+    selected = data.get("services_list", [])
+    if item in selected: selected.remove(item)
+    else: selected.append(item)
+    await state.update_data(services_list=selected)
+    try: await callback.message.edit_reply_markup(reply_markup=kb_services(selected))
+    except: pass
+    await callback.answer()
+
+@router.callback_query(F.data == "bro_srv_done")
+async def services_done(callback: types.CallbackQuery, state: FSMContext):
+    await state.update_data(services_done=True)
+    await callback.answer()
+    await step_12_circulation(callback.message, state)
+
+async def step_12_circulation(message: types.Message, state: FSMContext):
+    await state.set_state(BrochureCalc.step_circulation)
+    data = await state.get_data()
+    text = (
+        f"{get_breadcrumbs(data, 12)}"
+        "🔢 <b>Шаг 12. Тираж</b>\n"
+        "Сколько экземпляров брошюр вам нужно?\n\n"
+        "<i>Выберите из списка или введите число вручную в чат</i>"
+    )
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="50", callback_data="bro_cnt_50"),
+         InlineKeyboardButton(text="100", callback_data="bro_cnt_100"),
+         InlineKeyboardButton(text="200", callback_data="bro_cnt_200")],
+        [InlineKeyboardButton(text="300", callback_data="bro_cnt_300"),
+         InlineKeyboardButton(text="500", callback_data="bro_cnt_500"),
+         InlineKeyboardButton(text="1 000", callback_data="bro_cnt_1000")],
+        [InlineKeyboardButton(text="🔙 Назад", callback_data="bro_back_step_11")]
+    ])
+    await smart_edit(message, text, kb)
+
+@router.callback_query(BrochureCalc.step_circulation, F.data.startswith("bro_cnt_"))
+async def process_cnt_btn(callback: types.CallbackQuery, state: FSMContext, db: Database):
+    await state.update_data(count=callback.data.replace("bro_cnt_", ""))
+    await callback.answer()
+    await show_summary(callback.message, state, db)
+
+@router.message(BrochureCalc.step_circulation)
+async def process_cnt_text(message: types.Message, state: FSMContext, db: Database):
+    try: await message.delete()
+    except: pass
+    if not message.text.isdigit() or int(message.text) < 1:
+        await message.answer("⚠️ Введите только число (например: 100)")
+        return
+    await state.update_data(count=message.text)
+    await show_summary(message, state, db)
+
+def build_summary(data: dict) -> str:
+    finishes = data.get('cover_finishes_list', [])
+    finish_str = ', '.join(finishes) if finishes else "Нет"
+    services = data.get('services_list', [])
+    srv_str = ', '.join(services) if services else "Нет"
+    return (
+        f"🧾 <b>ПРОВЕРКА ДАННЫХ: БРОШЮРЫ</b>\n"
+        f"➖➖➖➖➖➖➖➖\n"
+        f"🔧 <b>ОБЩИЕ:</b>\n"
+        f"• Формат: <b>{data.get('format_name', '?')}</b>\n"
+        f"• Ориентация: <b>{data.get('orientation', '?')}</b>\n"
+        f"• Переплет: <b>{data.get('binding', '?')}</b>\n\n"
+        f"📕 <b>ОБЛОЖКА:</b>\n"
+        f"• Плотность: <b>{data.get('cover_paper', '?')}</b>\n"
+        f"• Цветность: <b>{data.get('cover_color', '?')}</b>\n"
+        f"• Отделка: <b>{finish_str}</b>\n\n"
+        f"📄 <b>БЛОК:</b>\n"
+        f"• Страниц: <b>{data.get('block_pages', '?')}</b>\n"
+        f"• Цветность: <b>{data.get('block_color', '?')}</b>\n"
+        f"• Бумага: <b>{data.get('block_paper_type', '?')}</b>\n"
+        f"• Плотность: <b>{data.get('block_paper_weight', '?')}</b>\n\n"
+        f"🛠 <b>УСЛУГИ:</b> {srv_str}\n"
+        f"🔢 <b>Тираж:</b> {data.get('count', '?')} шт."
+    )
+
+async def show_summary(message: types.Message, state: FSMContext, db: Database):
+    data = await state.get_data()
+    summary = build_summary(data)
+    await state.update_data(final_summary=summary)
+    profile = await db.get_user(message.chat.id)
+    is_complete = profile and profile.full_name and profile.phone and profile.city and profile.address
+    if is_complete:
+        text = (
+            "🏁 <b>Проверьте ваш заказ:</b>\n\n"
+            f"{summary}\n\n➖➖➖➖➖➖➖➖\n"
+            "Нажмите кнопку — менеджер получит заявку и рассчитает стоимость за 15-30 минут. 💬"
+        )
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🚀 ОТПРАВИТЬ МЕНЕДЖЕРУ", callback_data="bro_submit")],
+            [InlineKeyboardButton(text="🔄 Начать сначала", callback_data="start_calc_brochure")]
+        ])
+    else:
+        text = (
+            "🏁 <b>Заказ сформирован!</b>\n\n"
+            f"{summary}\n\n➖➖➖➖➖➖➖➖\n"
+            "👋 Для отправки менеджеру нужны ваши контакты. Это займёт минуту и сохранится навсегда."
+        )
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="📝 ПРЕДСТАВИТЬСЯ И ОТПРАВИТЬ", callback_data="bro_reg_start")],
+            [InlineKeyboardButton(text="🔄 Начать сначала", callback_data="start_calc_brochure")]
+        ])
+    await message.answer(text, reply_markup=kb, parse_mode="HTML")
+
+@router.callback_query(F.data == "bro_reg_start")
+async def reg_start(callback: types.CallbackQuery, state: FSMContext):
+    await callback.answer()
+    await state.set_state(BrochureCalc.reg_name)
+    await callback.message.answer("✍️ Введите ваше <b>Имя</b>:", parse_mode="HTML")
+
+@router.message(BrochureCalc.reg_name)
+async def reg_name(message: types.Message, state: FSMContext):
+    await state.update_data(reg_name=message.text)
+    await state.set_state(BrochureCalc.reg_phone)
+    await message.answer("📞 Введите ваш <b>Телефон</b>:", parse_mode="HTML")
+
+@router.message(BrochureCalc.reg_phone)
+async def reg_phone(message: types.Message, state: FSMContext):
+    await state.update_data(reg_phone=message.text)
+    await state.set_state(BrochureCalc.reg_city)
+    await message.answer("🏙 Введите ваш <b>Город</b>:", parse_mode="HTML")
+
+@router.message(BrochureCalc.reg_city)
+async def reg_city(message: types.Message, state: FSMContext):
+    await state.update_data(reg_city=message.text)
+    await state.set_state(BrochureCalc.reg_address)
+    await message.answer("🚚 Введите <b>Адрес доставки</b>:", parse_mode="HTML")
+
+@router.message(BrochureCalc.reg_address)
+async def reg_address(message: types.Message, state: FSMContext, bot: Bot, db: Database):
+    data = await state.get_data()
+    await db.update_user_profile(
+        message.chat.id,
+        full_name=data['reg_name'], phone=data['reg_phone'],
+        city=data['reg_city'], address=message.text
+    )
+    await message.answer("✅ Контакты сохранены! Отправляем заказ...")
+    await finalize_order(message.chat, state, bot, message, db)
+
+@router.callback_query(F.data == "bro_submit")
+async def submit_handler(callback: types.CallbackQuery, state: FSMContext, bot: Bot, db: Database):
+    await callback.answer()
+    await finalize_order(callback.message.chat, state, bot, callback.message, db)
+
+async def finalize_order(user_obj, state: FSMContext, bot: Bot, message_obj, db: Database):
+    from handlers.common import send_order_to_managers
+    data = await state.get_data()
+    summary = data.get('final_summary', '')
+    
+    # Фильтруем параметры для БД
+    params = {
+        "format": data.get('format_name'),
+        "orientation": data.get('orientation'),
+        "binding": data.get('binding'),
+        "cover_paper": data.get('cover_paper'),
+        "cover_color": data.get('cover_color'),
+        "cover_finishes": data.get('cover_finishes_list', []),
+        "block_pages": data.get('block_pages'),
+        "block_color": data.get('block_color'),
+        "block_paper_type": data.get('block_paper_type'),
+        "block_paper_weight": data.get('block_paper_weight'),
+        "services": data.get('services_list', []),
+        "count": data.get('count')
+    }
+
+    order = Order(
+        user_id=user_obj.id,
+        category="Брошюры",
+        params=params,
+        description=summary
+    )
+    order_id = await db.create_order(order)
+    await send_order_to_managers(order_id, user_obj.id, summary, "Брошюры", bot, db)
+    await state.clear()
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="👤 Личный кабинет", callback_data="main_profile")],
+        [InlineKeyboardButton(text="🏗 В каталог", callback_data="main_constructor")],
+        [InlineKeyboardButton(text="🏠 Главное меню", callback_data="back_to_main")]
+    ])
+    await message_obj.answer(
+        f"✨ <b>Заказ #{order_id} отправлен!</b>\n\n"
+        "Менеджер получил заявку на брошюры и подготовит расчёт стоимости. "
+        "Ответ придёт прямо в этот чат в течение 15-30 минут. 💬\n\n"
+        "<b>Спасибо, что выбираете «Поликрафт»!</b> 🙌",
+        reply_markup=kb, parse_mode="HTML"
+    )

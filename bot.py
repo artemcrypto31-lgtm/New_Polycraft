@@ -23,6 +23,8 @@ from handlers.posters import router as posters_router
 from handlers.admin import router as admin_router
 from handlers.admin_panel import router as admin_panel_router
 from handlers.orders import router as orders_router
+from handlers.booklets import router as booklets_router
+from handlers.brochures import router as brochures_router
 
 # Настройка логирования
 log_formatter = logging.Formatter(
@@ -93,6 +95,8 @@ async def main():
     dp.include_router(posters_router)
     dp.include_router(admin_router)
     dp.include_router(admin_panel_router)
+    dp.include_router(booklets_router)
+    dp.include_router(brochures_router)
     dp.include_router(orders_router)
     dp.include_router(start_router)
     
