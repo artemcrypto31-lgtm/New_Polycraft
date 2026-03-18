@@ -121,15 +121,4 @@ async def show_req_detail(callback: types.CallbackQuery):
     except TelegramBadRequest:
         pass
 
-@router.callback_query(F.data == "back_to_main")
-async def back_to_main(callback: types.CallbackQuery):
-    """Возврат к основному приветствию бота"""
-    await callback.answer()
-    try:
-        await callback.message.edit_text(
-            text=WELCOME_TEXT,
-            reply_markup=get_main_menu(),
-            parse_mode="HTML"
-        )
-    except TelegramBadRequest:
-        pass
+

@@ -1,6 +1,5 @@
 from aiogram import Router, F, types
 from aiogram.fsm.context import FSMContext
-from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 from database import Database
@@ -8,12 +7,6 @@ from models import Order
 from datetime import datetime
 
 router = Router()
-
-class OrderConstructor(StatesGroup):
-    waiting_for_category = State()
-    waiting_for_params = State()
-    waiting_for_description = State()
-    waiting_for_files = State()
 
 # --- ТЕКСТЫ ---
 
@@ -153,24 +146,6 @@ async def show_multipage_help(callback: types.CallbackQuery):
     )
 
 @router.callback_query(F.data.startswith("prod_"))
-async def process_product_selection(callback: types.CallbackQuery, state: FSMContext):
+async def process_product_selection(callback: types.CallbackQuery):
     """Обработка выбора конкретного изделия и переход к параметрам"""
-    product_name = callback.data.replace("prod_", "")
-    await state.update_data(category=product_name)
-    
-    await state.set_state(OrderConstructor.waiting_for_params)
-    
-    text = (
-        f"✅ <b>Выбрано: {product_name}</b>\n\n"
-        f"📝 <b>Шаг 2: Параметры изделия</b>\n"
-        f"Пожалуйста, напишите основные характеристики:\n"
-        f"— Тираж (сколько штук?)\n"
-        f"— Размер (А4, А5, 10х15...)\n"
-        f"— Цветность (ч/б или цветное)\n"
-        f"— Тип бумаги (если знаете)\n\n"
-        f"<i>Просто введите всё одним сообщением:</i>"
-    )
-    
-    await callback.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="⬅️ Назад", callback_data="main_constructor")]
-    ]))
+    await callback.answer("🚧 Раздел в разработке", show_alert=True)

@@ -356,11 +356,8 @@ async def render_step_6(message: types.Message, state: FSMContext):
     ])
     
     # Чтобы избежать дублирования сообщений при вводе текста
-    msg = await message.answer(text, reply_markup=kb, parse_mode="HTML")
-    await state.update_data(last_msg_id=msg.message_id)
-    if message.message_id != msg.message_id: 
-        try: await message.delete()
-        except: pass
+    await smart_edit(message, text, kb)
+
 
 @router.callback_query(StateFilter(CalcLeaflets.step_circulation), F.data == "info_l_circ")
 async def info_l_circ_handler(callback: types.CallbackQuery):

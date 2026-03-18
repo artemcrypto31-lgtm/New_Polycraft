@@ -7,6 +7,14 @@ from database import Database
 logger = logging.getLogger(__name__)
 
 
+async def start_registration(message, state, next_callback: str):
+    """
+    Начало процесса регистрации пользователя.
+    TODO: Реализовать установку состояния и запрос имени с сохранением next_callback.
+    """
+    pass
+
+
 async def send_order_to_managers(order_id: int, user_id: int, summary_text: str, category: str, bot: Bot, db: Database):
     from datetime import datetime
     

@@ -1,10 +1,13 @@
 import os
+import logging
 from aiogram import Router, F, types, Bot
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 from database import Database
+
+logger = logging.getLogger(__name__)
 
 router = Router()
 
@@ -71,6 +74,7 @@ async def mgr_set_price(message: types.Message, state: FSMContext, bot: Bot, db:
         return
 
     await db.set_order_price(order_id, price, message.from_user.id)
+    logger.info(f"💰 Менеджер {message.from_user.id} установил цену {price} для заказа #{order_id}")
 
     if message.from_user.username:
         try:
