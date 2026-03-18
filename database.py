@@ -1,8 +1,11 @@
 import aiosqlite
 import json
+import logging
 from datetime import datetime
 from typing import List, Optional
 from models import User, Order
+
+logger = logging.getLogger(__name__)
 
 class Database:
     def __init__(self, db_path: str = "polycraft.db"):
@@ -145,7 +148,9 @@ class Database:
                 order.status, order.offered_price, created_at, updated_at
             ))
             await db.commit()
-            return cursor.lastrowid
+            order_id = cursor.lastrowid
+            logger.info(f"✅ Заказ #{order_id} создан в БД (категория: {order.category}, тираж: {order.params.get('count', '?')})")
+            return order_id
 
     async def get_user_orders(self, user_id: int) -> List[Order]:
         async with aiosqlite.connect(self.db_path) as db:
@@ -196,6 +201,7 @@ class Database:
                     (status, now, order_id)
                 )
             await db.commit()
+            logger.info(f"✅ Заказ #{order_id} обновлён (статус: {status})")
 
     async def get_order(self, order_id: int) -> Optional[Order]:
         async with aiosqlite.connect(self.db_path) as db:
@@ -239,6 +245,7 @@ class Database:
                 (price, manager_id, now, order_id)
             )
             await db.commit()
+            logger.info(f"💰 Заказу #{order_id} установлена цена {price} (менеджер ID: {manager_id})")
 
     async def get_managers(self) -> List[int]:
         """Возвращает список ID всех пользователей с ролью manager или admin."""
